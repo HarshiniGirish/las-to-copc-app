@@ -1,0 +1,55 @@
+algorithm_description: >
+  Convert raw LAS/LAZ lidar to fixed-size Cloud-Optimized Point Cloud (COPC)
+  tiles. Optionally voxel-thin and drop/keep ExtraBytes. Writes
+  {site}_{Xmin}_{Ymin}.copc.laz tiles.
+algorithm_name: las-to-copc-tiled
+algorithm_version: main
+keywords: lidar, copc, pdal, geotrees, las, laz
+code_repository: https://github.com/MAAP-Project/geotrees-demo.git
+citation: https://github.com/MAAP-Project/geotrees-demo.git
+author: YOUR_NAME
+contributor: YOUR_NAME
+license: https://github.com/MAAP-Project/geotrees-demo/blob/main/LICENSE
+release_notes: Initial OGC Application Package for geotrees_meeting_2026 LAZ→COPC tiling.
+run_command: /app/run.sh
+ram_min: 8192
+cores_min: 2
+outdir_max: 20480
+
+inputs:
+  - name: input_dir
+    doc: Directory of input .las / .laz files (projected CRS in meters).
+    label: input LAS/LAZ directory
+    type: Directory
+  - name: site
+    doc: Site code prefix used in output filenames (e.g. NEON_HARV).
+    label: site code
+    type: string
+  - name: tile_size
+    doc: Tile edge length in CRS units (meters). Default 250.
+    label: tile size
+    type: float
+    default: 250.0
+  - name: voxel_size
+    doc: Optional voxel thinning cell size in CRS units. Omit to disable.
+    label: voxel size
+    type: float?
+  - name: keep_extra_dims
+    doc: If true, preserve provider ExtraBytes; otherwise drop them.
+    label: keep extra dims
+    type: boolean
+    default: false
+  - name: merge
+    doc: If true, merge all inputs before tiling (memory intensive).
+    label: merge inputs
+    type: boolean
+    default: false
+  - name: overwrite
+    doc: If true, overwrite existing output tiles.
+    label: overwrite
+    type: boolean
+    default: false
+
+outputs:
+  - name: out
+    type: Directory
