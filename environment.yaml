@@ -9,5 +9,4 @@ dependencies:
   - numpy
   - gdal
   - laszip
-  - lazperf
   - pip
