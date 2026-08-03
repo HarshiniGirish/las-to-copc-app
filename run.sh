@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Defaults matching las_to_copc_tiled.py
+basedir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
 INPUT_DIR=""
 SITE=""
 TILE_SIZE="250"
@@ -28,11 +29,11 @@ if [[ -z "${INPUT_DIR}" || -z "${SITE}" ]]; then
   exit 1
 fi
 
-# OGC/MAAP convention: stage results under ./output
 OUTDIR="${PWD}/output"
 mkdir -p "${OUTDIR}"
 
-CMD=(python /app/las_to_copc_tiled.py
+CMD=(
+  python "${basedir}/las_to_copc_tiled.py"
   --input "${INPUT_DIR}"
   --output "${OUTDIR}"
   --site "${SITE}"
@@ -42,15 +43,9 @@ CMD=(python /app/las_to_copc_tiled.py
 if [[ -n "${VOXEL_SIZE}" ]]; then
   CMD+=(--voxel-size "${VOXEL_SIZE}")
 fi
-if [[ "${KEEP_EXTRA_DIMS}" -eq 1 ]]; then
-  CMD+=(--keep-extra-dims)
-fi
-if [[ "${MERGE}" -eq 1 ]]; then
-  CMD+=(--merge)
-fi
-if [[ "${OVERWRITE}" -eq 1 ]]; then
-  CMD+=(--overwrite)
-fi
+[[ "${KEEP_EXTRA_DIMS}" -eq 1 ]] && CMD+=(--keep-extra-dims)
+[[ "${MERGE}" -eq 1 ]] && CMD+=(--merge)
+[[ "${OVERWRITE}" -eq 1 ]] && CMD+=(--overwrite)
 
-echo "Running: ${CMD[*]}"
-exec "${CMD[@]}"
+echo "Running: conda run -n copc ${CMD[*]}"
+exec conda run --live-stream --name copc "${CMD[@]}"
