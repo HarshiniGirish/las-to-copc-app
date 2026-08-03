@@ -1,0 +1,13 @@
+name: copc
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pdal>=2.6
+  - python-pdal>=3.2
+  - numpy
+  - gdal
+  - laszip
+  - lazperf
+  - pip
