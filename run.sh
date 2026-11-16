@@ -11,21 +11,54 @@ KEEP_EXTRA_DIMS=0
 MERGE=0
 OVERWRITE=0
 
+read_bool() {
+  case "${1,,}" in
+    true|1|yes|on) return 0 ;;
+    false|0|no|off|"") return 1 ;;
+    *) echo "Invalid boolean: $1" >&2; exit 1 ;;
+  esac
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --input_dir)        INPUT_DIR="$2"; shift 2 ;;
     --site)             SITE="$2"; shift 2 ;;
     --tile_size)        TILE_SIZE="$2"; shift 2 ;;
-    --voxel_size)       VOXEL_SIZE="$2"; shift 2 ;;
-    --keep_extra_dims)  KEEP_EXTRA_DIMS=1; shift ;;
-    --merge)            MERGE=1; shift ;;
-    --overwrite)        OVERWRITE=1; shift ;;
+    --voxel_size)
+      VOXEL_SIZE="$2"
+      [[ -z "${VOXEL_SIZE}" || "${VOXEL_SIZE}" == "null" ]] && VOXEL_SIZE=""
+      shift 2
+      ;;
+    --keep_extra_dims)
+      if [[ $# -ge 2 && "$2" != --* ]]; then
+        read_bool "$2" && KEEP_EXTRA_DIMS=1 || KEEP_EXTRA_DIMS=0
+        shift 2
+      else
+        KEEP_EXTRA_DIMS=1; shift
+      fi
+      ;;
+    --merge)
+      if [[ $# -ge 2 && "$2" != --* ]]; then
+        read_bool "$2" && MERGE=1 || MERGE=0
+        shift 2
+      else
+        MERGE=1; shift
+      fi
+      ;;
+    --overwrite)
+      if [[ $# -ge 2 && "$2" != --* ]]; then
+        read_bool "$2" && OVERWRITE=1 || OVERWRITE=0
+        shift 2
+      else
+        OVERWRITE=1; shift
+      fi
+      ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 
 if [[ -z "${INPUT_DIR}" || -z "${SITE}" ]]; then
-  echo "Required: --input_dir <Directory> --site <string>" >&2
+  echo "Required: --input_dir <path> --site <string>" >&2
   exit 1
 fi
 
@@ -33,7 +66,7 @@ OUTDIR="${PWD}/output"
 mkdir -p "${OUTDIR}"
 
 CMD=(
-  python "${basedir}/las_to_copc_tiled.py"
+  Rscript "${basedir}/las_to_copc_tiled.R"
   --input "${INPUT_DIR}"
   --output "${OUTDIR}"
   --site "${SITE}"
