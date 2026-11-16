@@ -19,33 +19,80 @@ read_bool() {
   esac
 }
 
-# MAAP Directory stage-in often yields a folder with catalog.json / item JSON and
-# asset hrefs that are still s3:// (cwltool does not fetch s3). Resolve to a
-# local .las/.laz path for the R script.
-resolve_lidar_input() {
-  local path="$1"
-  local found=""
-  local href=""
-  local dest=""
+download_href() {
+  local href="$1"
+  local dest="$2"
+  case "${href}" in
+    s3://*)
+      aws s3 cp "${href}" "${dest}"
+      ;;
+    https://*|http://*)
+      curl -fsSL -o "${dest}" "${href}"
+      ;;
+    file://*)
+      cp "${href#file://}" "${dest}"
+      ;;
+    /*)
+      if [[ -f "${href}" ]]; then
+        cp "${href}" "${dest}"
+      else
+        echo "Local href missing: ${href}" >&2
+        return 1
+      fi
+      ;;
+    *)
+      echo "Unrecognized href: ${href}" >&2
+      return 1
+      ;;
+  esac
+}
 
-  if [[ -f "${path}" ]]; then
-    case "${path,,}" in
-      *.las|*.laz) echo "${path}"; return 0 ;;
-    esac
-  fi
+# Fetch first lidar asset href from a STAC Item HTTPS URL (or local item JSON).
+stac_item_asset_href() {
+  local item_url="$1"
+  python3 - "${item_url}" <<'PY'
+import json, sys, urllib.request
 
-  if [[ -d "${path}" ]]; then
-    found=$(find "${path}" -type f \( -iname '*.las' -o -iname '*.laz' \) 2>/dev/null | head -n 1 || true)
-    if [[ -n "${found}" ]]; then
-      echo "${found}"
-      return 0
-    fi
+url = sys.argv[1]
+if url.startswith("http://") or url.startswith("https://"):
+    with urllib.request.urlopen(url, timeout=60) as resp:
+        item = json.load(resp)
+else:
+    with open(url, "r", encoding="utf-8") as f:
+        item = json.load(f)
 
-    echo "Staged directory contents of ${path}:" >&2
-    find "${path}" -maxdepth 3 -type f 2>/dev/null | head -n 50 >&2 || true
+assets = item.get("assets") or {}
+# Prefer common lidar asset keys, then any .las/.laz href
+preferred_keys = ("data", "laz", "las", "copc", "pointcloud", "point_cloud")
+candidates = []
+for key in preferred_keys:
+    a = assets.get(key)
+    if isinstance(a, dict) and a.get("href"):
+        candidates.append(a["href"])
+for a in assets.values():
+    if isinstance(a, dict) and a.get("href"):
+        href = a["href"]
+        if href.lower().endswith((".las", ".laz", ".copc.laz")):
+            candidates.append(href)
+if not candidates:
+    for a in assets.values():
+        if isinstance(a, dict) and a.get("href"):
+            candidates.append(a["href"])
+            break
+if not candidates:
+    raise SystemExit("No assets.href found in STAC Item")
+print(candidates[0])
+PY
+}
 
-    # Prefer hrefs from STAC JSON (local file:// or relative, or s3:// / https://)
-    href=$(python3 - "${path}" <<'PY' 2>/dev/null || true
+find_laz_under() {
+  local root="$1"
+  find "${root}" -type f \( -iname '*.las' -o -iname '*.laz' \) 2>/dev/null | head -n 1 || true
+}
+
+extract_href_from_json_tree() {
+  local root="$1"
+  python3 - "${root}" <<'PY' 2>/dev/null || true
 import json, os, sys
 root = sys.argv[1]
 hrefs = []
@@ -71,57 +118,106 @@ for dirpath, _, files in os.walk(root):
         except Exception:
             pass
 
-# Prefer lidar-looking hrefs
 prefer = [h for h in hrefs if h.lower().endswith((".las", ".laz", ".copc.laz"))]
 ordered = prefer + [h for h in hrefs if h not in prefer]
-for h in ordered:
-    print(h)
-    break
+if ordered:
+    print(ordered[0])
 PY
-)
-    if [[ -z "${href}" ]]; then
-      echo "No .las/.laz and no STAC asset href under ${path}" >&2
-      return 1
-    fi
+}
 
-    echo "Resolved STAC asset href: ${href}" >&2
-    dest="${path}/staged_input.laz"
+# Resolve to a local .las/.laz for R. Accepts:
+# - local file/dir (MAAP Directory stage-in)
+# - STAC Item https://.../items/...
+# - s3://...laz
+# - broken staged path: search parent / download from embedded STAC hrefs
+resolve_lidar_input() {
+  local path="$1"
+  local found=""
+  local href=""
+  local dest=""
+  local parent=""
+  local stage_dir="${PWD}/staged_input"
+  mkdir -p "${stage_dir}"
+  dest="${stage_dir}/input.laz"
 
-    case "${href}" in
-      s3://*)
-        aws s3 cp "${href}" "${dest}"
-        ;;
-      https://*|http://*)
-        curl -fsSL -o "${dest}" "${href}"
-        ;;
-      file://*)
-        cp "${href#file://}" "${dest}"
-        ;;
-      /*)
-        if [[ -f "${href}" ]]; then
-          echo "${href}"
-          return 0
-        fi
-        echo "Local href missing: ${href}" >&2
-        return 1
-        ;;
-      *)
-        # Relative to the staged directory
-        if [[ -f "${path}/${href}" ]]; then
-          echo "${path}/${href}"
-          return 0
-        fi
-        echo "Unrecognized href: ${href}" >&2
-        return 1
-        ;;
-    esac
-
-    if [[ ! -f "${dest}" ]]; then
-      echo "Failed to stage lidar asset to ${dest}" >&2
-      return 1
-    fi
+  # Direct remote URLs (preferred after re-registering input as string)
+  if [[ "${path}" == s3://* ]]; then
+    echo "Downloading ${path}" >&2
+    download_href "${path}" "${dest}"
     echo "${dest}"
     return 0
+  fi
+
+  if [[ "${path}" == https://stac.maap-project.org/* ]] || [[ "${path}" == http://stac.maap-project.org/* ]] \
+     || [[ "${path}" == */collections/*/items/* ]]; then
+    echo "Fetching STAC Item: ${path}" >&2
+    href=$(stac_item_asset_href "${path}")
+    echo "STAC asset href: ${href}" >&2
+    download_href "${href}" "${dest}"
+    echo "${dest}"
+    return 0
+  fi
+
+  if [[ -f "${path}" ]]; then
+    case "${path,,}" in
+      *.las|*.laz|*.json)
+        if [[ "${path,,}" == *.json ]]; then
+          href=$(stac_item_asset_href "${path}")
+          echo "STAC asset href: ${href}" >&2
+          download_href "${href}" "${dest}"
+          echo "${dest}"
+          return 0
+        fi
+        echo "${path}"
+        return 0
+        ;;
+    esac
+  fi
+
+  if [[ -d "${path}" ]]; then
+    found=$(find_laz_under "${path}")
+    if [[ -n "${found}" ]]; then
+      echo "${found}"
+      return 0
+    fi
+    echo "Staged directory contents of ${path}:" >&2
+    find "${path}" -maxdepth 3 -type f 2>/dev/null | head -n 50 >&2 || true
+    href=$(extract_href_from_json_tree "${path}")
+    if [[ -n "${href}" ]]; then
+      echo "Resolved STAC asset href: ${href}" >&2
+      if [[ "${href}" == /* && -f "${href}" ]]; then
+        echo "${href}"
+        return 0
+      fi
+      if [[ "${href}" != /* && -f "${path}/${href}" ]]; then
+        echo "${path}/${href}"
+        return 0
+      fi
+      download_href "${href}" "${dest}"
+      echo "${dest}"
+      return 0
+    fi
+    echo "No .las/.laz and no STAC asset href under ${path}" >&2
+    return 1
+  fi
+
+  # CWL sometimes passes a staged path that was never created. Search parent.
+  parent=$(dirname "${path}")
+  if [[ -d "${parent}" ]]; then
+    echo "Path missing (${path}); searching parent ${parent}" >&2
+    find "${parent}" -maxdepth 4 -type f 2>/dev/null | head -n 50 >&2 || true
+    found=$(find_laz_under "${parent}")
+    if [[ -n "${found}" ]]; then
+      echo "${found}"
+      return 0
+    fi
+    href=$(extract_href_from_json_tree "${parent}")
+    if [[ -n "${href}" ]]; then
+      echo "Resolved STAC asset href from parent: ${href}" >&2
+      download_href "${href}" "${dest}"
+      echo "${dest}"
+      return 0
+    fi
   fi
 
   echo "Input path not found: ${path}" >&2
@@ -166,12 +262,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Trim whitespace from site (CWL sometimes passes " MM03")
 SITE="${SITE#"${SITE%%[![:space:]]*}"}"
 SITE="${SITE%"${SITE##*[![:space:]]}"}"
+INPUT_DIR="${INPUT_DIR#"${INPUT_DIR%%[![:space:]]*}"}"
+INPUT_DIR="${INPUT_DIR%"${INPUT_DIR##*[![:space:]]}"}"
 
 if [[ -z "${INPUT_DIR}" || -z "${SITE}" ]]; then
-  echo "Required: --input_dir <path> --site <string>" >&2
+  echo "Required: --input_dir <path-or-url> --site <string>" >&2
   exit 1
 fi
 
