@@ -18,9 +18,12 @@ outdir_max: 20480
 
 inputs:
   - name: input_dir
-    doc: Directory of input .las / .laz files (projected CRS in meters).
-    label: input LAS/LAZ directory
-    type: Directory
+    doc: >
+      LAS/LAZ input as a STAC Item URL (preferred), s3:// path to a .las/.laz,
+      or a local staged path. Example:
+      https://stac.maap-project.org/collections/GEDI_CalVal_Lidar_Data_Compressed/items/usa_moscowmtn_MM03_1401
+    label: input LAS/LAZ (STAC URL or s3 path)
+    type: string
   - name: site
     doc: Site code prefix used in output filenames (e.g. NEON_HARV).
     label: site code
