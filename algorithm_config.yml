@@ -1,17 +1,17 @@
 algorithm_description: >
   Convert raw LAS/LAZ lidar to fixed-size Cloud-Optimized Point Cloud (COPC)
-  tiles. Optionally voxel-thin and drop/keep ExtraBytes. Writes
+  tiles using R (lasR). Optionally voxel-thin and drop/keep ExtraBytes. Writes
   {site}_{Xmin}_{Ymin}.copc.laz tiles.
 algorithm_name: las-to-copc-tiled
 algorithm_version: main
-keywords: lidar, copc, pdal, geotrees, las, laz
-code_repository: https://github.com/MAAP-Project/geotrees-demo.git
-citation: https://github.com/MAAP-Project/geotrees-demo.git
-author: harshini
-contributor: harshini
-license: https://github.com/MAAP-Project/geotrees-demo/blob/main/LICENSE
-release_notes: Initial OGC Application Package for geotrees_meeting_2026 LAZ→COPC tiling.
-run_command: /app/run.sh
+keywords: lidar, copc, lasR, geotrees, las, laz, R
+code_repository: https://github.com/HarshiniGirish/las-to-copc-app.git
+citation: https://github.com/HarshiniGirish/las-to-copc-app.git
+author: Harshini Girish
+contributor: Harshini Girish
+license: https://github.com/HarshiniGirish/las-to-copc-app
+release_notes: R/lasR OGC Application Package for LAZ→tiled COPC (geotrees_meeting_2026).
+run_command: las-to-copc-app/run.sh
 ram_min: 8192
 cores_min: 2
 outdir_max: 20480
