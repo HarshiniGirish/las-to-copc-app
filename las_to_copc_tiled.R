@@ -33,12 +33,23 @@ discover_inputs <- function(input_path) {
   if (length(input_path) != 1L || is.na(input_path) || !nzchar(input_path)) {
     stop("No LAS/LAZ inputs found at: ", input_path)
   }
+  input_path <- trimws(input_path)
   if (dir.exists(input_path)) {
+    # Recursive: MAAP STAC stage-in may nest assets under the Directory
     files <- sort(list.files(
       input_path,
       pattern = "(?i)\\.(las|laz)$",
-      full.names = TRUE
+      full.names = TRUE,
+      recursive = TRUE
     ))
+    if (length(files) == 0L) {
+      listing <- list.files(input_path, full.names = TRUE, recursive = TRUE)
+      stop(
+        "No LAS/LAZ inputs found at: ", input_path,
+        "\nDirectory listing (", length(listing), " entries):\n",
+        paste(utils::head(listing, 40L), collapse = "\n")
+      )
+    }
   } else if (file.exists(input_path)) {
     files <- normalizePath(input_path, winslash = "/", mustWork = TRUE)
   } else {
@@ -198,10 +209,11 @@ main <- function() {
   )
   opt <- parse_args(parser)
 
-  if (is.null(opt$site) || !nzchar(opt$site)) {
+  if (is.null(opt$site) || !nzchar(trimws(opt$site))) {
     print_help(parser)
     stop("--site is required", call. = FALSE)
   }
+  opt$site <- trimws(opt$site)
 
   inputs <- discover_inputs(opt$input)
   voxel_size <- if (is.na(opt$voxel_size)) NULL else opt$voxel_size

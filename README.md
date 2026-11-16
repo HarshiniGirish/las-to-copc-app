@@ -20,6 +20,14 @@ Rscript las_to_copc_tiled.R \
 
 Inputs should be in a **projected meter CRS**. Outputs are named `{site}_{Xmin}_{Ymin}.copc.laz`.
 
+On MAAP, pass a **STAC Item URL** for `input_dir` (Directory), e.g.:
+
+```text
+https://stac.maap-project.org/collections/GEDI_CalVal_Lidar_Data_Compressed/items/usa_moscowmtn_MM03_1401
+```
+
+`run.sh` resolves the staged folder, and if the asset is still `s3://` (cwltool does not fetch S3), downloads it with `aws s3 cp` before calling R.
+
 ## MAAP register / build
 
 | Field | Value |
