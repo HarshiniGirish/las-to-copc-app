@@ -19,32 +19,68 @@ read_bool() {
   esac
 }
 
+# Download without requiring the aws CLI (often missing in MAAP algo images).
+# Prefer boto3 (usually on MAAP base python); fall back to awscli if present.
+download_s3() {
+  local href="$1"
+  local dest="$2"
+  if python3 - "${href}" "${dest}" <<'PY'
+import sys
+href, dest = sys.argv[1], sys.argv[2]
+if not href.startswith("s3://"):
+    raise SystemExit(f"not an s3 href: {href}")
+bucket_key = href[5:]
+bucket, _, key = bucket_key.partition("/")
+if not bucket or not key:
+    raise SystemExit(f"bad s3 href: {href}")
+try:
+    import boto3
+except ImportError:
+    raise SystemExit("boto3 not installed")
+boto3.client("s3").download_file(bucket, key, dest)
+print(f"Downloaded s3://{bucket}/{key} -> {dest}", file=sys.stderr)
+PY
+  then
+    return 0
+  fi
+
+  if command -v aws >/dev/null 2>&1; then
+    aws s3 cp "${href}" "${dest}"
+    return 0
+  fi
+
+  echo "Cannot download ${href}: need python3+boto3 or aws CLI" >&2
+  return 1
+}
+
 download_href() {
   local href="$1"
   local dest="$2"
-  case "${href}" in
-    s3://*)
-      aws s3 cp "${href}" "${dest}"
-      ;;
-    https://*|http://*)
-      curl -fsSL -o "${dest}" "${href}"
-      ;;
-    file://*)
-      cp "${href#file://}" "${dest}"
-      ;;
-    /*)
-      if [[ -f "${href}" ]]; then
-        cp "${href}" "${dest}"
-      else
-        echo "Local href missing: ${href}" >&2
-        return 1
-      fi
-      ;;
-    *)
-      echo "Unrecognized href: ${href}" >&2
+  mkdir -p "$(dirname "${dest}")"
+
+  if [[ "${href}" == s3://* ]]; then
+    download_s3 "${href}" "${dest}" || return 1
+  elif [[ "${href}" == https://* || "${href}" == http://* ]]; then
+    curl -fsSL -o "${dest}" "${href}" || return 1
+  elif [[ "${href}" == file://* ]]; then
+    cp "${href#file://}" "${dest}" || return 1
+  elif [[ "${href}" == /* ]]; then
+    if [[ -f "${href}" ]]; then
+      cp "${href}" "${dest}" || return 1
+    else
+      echo "Local href missing: ${href}" >&2
       return 1
-      ;;
-  esac
+    fi
+  else
+    echo "Unrecognized href: ${href}" >&2
+    return 1
+  fi
+
+  if [[ ! -s "${dest}" ]]; then
+    echo "Download produced empty/missing file: ${dest}" >&2
+    return 1
+  fi
+  return 0
 }
 
 # Fetch first lidar asset href from a STAC Item HTTPS URL (or local item JSON).
@@ -143,7 +179,7 @@ resolve_lidar_input() {
   # Direct remote URLs (preferred after re-registering input as string)
   if [[ "${path}" == s3://* ]]; then
     echo "Downloading ${path}" >&2
-    download_href "${path}" "${dest}"
+    download_href "${path}" "${dest}" || return 1
     echo "${dest}"
     return 0
   fi
@@ -153,7 +189,7 @@ resolve_lidar_input() {
     echo "Fetching STAC Item: ${path}" >&2
     href=$(stac_item_asset_href "${path}")
     echo "STAC asset href: ${href}" >&2
-    download_href "${href}" "${dest}"
+    download_href "${href}" "${dest}" || return 1
     echo "${dest}"
     return 0
   fi
@@ -164,7 +200,7 @@ resolve_lidar_input() {
         if [[ "${path,,}" == *.json ]]; then
           href=$(stac_item_asset_href "${path}")
           echo "STAC asset href: ${href}" >&2
-          download_href "${href}" "${dest}"
+          download_href "${href}" "${dest}" || return 1
           echo "${dest}"
           return 0
         fi
@@ -193,7 +229,7 @@ resolve_lidar_input() {
         echo "${path}/${href}"
         return 0
       fi
-      download_href "${href}" "${dest}"
+      download_href "${href}" "${dest}" || return 1
       echo "${dest}"
       return 0
     fi
@@ -214,7 +250,7 @@ resolve_lidar_input() {
     href=$(extract_href_from_json_tree "${parent}")
     if [[ -n "${href}" ]]; then
       echo "Resolved STAC asset href from parent: ${href}" >&2
-      download_href "${href}" "${dest}"
+      download_href "${href}" "${dest}" || return 1
       echo "${dest}"
       return 0
     fi

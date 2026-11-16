@@ -13,3 +13,6 @@ dependencies:
   - cxx-compiler
   - make
   - pkg-config
+  # Optional fallback if base-image boto3 is unavailable
+  - awscli
+  - boto3
