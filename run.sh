@@ -3,6 +3,17 @@ set -euo pipefail
 
 basedir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+# Prefer the algorithm conda env for python/boto3/aws (system python often lacks them).
+COPC_ENV="${CONDA_PREFIX:-/opt/conda/envs/copc}"
+if [[ -d /opt/conda/envs/copc ]]; then
+  COPC_ENV=/opt/conda/envs/copc
+elif [[ -d "${HOME}/.conda/envs/copc" ]]; then
+  COPC_ENV="${HOME}/.conda/envs/copc"
+fi
+if [[ -d "${COPC_ENV}/bin" ]]; then
+  export PATH="${COPC_ENV}/bin:${PATH}"
+fi
+
 INPUT_DIR=""
 SITE=""
 TILE_SIZE="250"
@@ -19,12 +30,15 @@ read_bool() {
   esac
 }
 
-# Download without requiring the aws CLI (often missing in MAAP algo images).
-# Prefer boto3 (usually on MAAP base python); fall back to awscli if present.
+# Download s3:// using the copc conda env (boto3/awscli), not bare system python.
 download_s3() {
   local href="$1"
   local dest="$2"
-  if python3 - "${href}" "${dest}" <<'PY'
+  local py="${COPC_ENV}/bin/python"
+  local aws_bin="${COPC_ENV}/bin/aws"
+
+  if [[ -x "${py}" ]]; then
+    if "${py}" - "${href}" "${dest}" <<'PY'
 import sys
 href, dest = sys.argv[1], sys.argv[2]
 if not href.startswith("s3://"):
@@ -35,21 +49,27 @@ if not bucket or not key:
     raise SystemExit(f"bad s3 href: {href}")
 try:
     import boto3
-except ImportError:
-    raise SystemExit("boto3 not installed")
+except ImportError as exc:
+    raise SystemExit(f"boto3 not installed in {sys.executable}: {exc}") from exc
 boto3.client("s3").download_file(bucket, key, dest)
 print(f"Downloaded s3://{bucket}/{key} -> {dest}", file=sys.stderr)
 PY
-  then
-    return 0
+    then
+      return 0
+    fi
   fi
 
+  if [[ -x "${aws_bin}" ]]; then
+    "${aws_bin}" s3 cp "${href}" "${dest}"
+    return 0
+  fi
   if command -v aws >/dev/null 2>&1; then
     aws s3 cp "${href}" "${dest}"
     return 0
   fi
 
-  echo "Cannot download ${href}: need python3+boto3 or aws CLI" >&2
+  echo "Cannot download ${href}: need ${py} + boto3 or awscli (COPC_ENV=${COPC_ENV})" >&2
+  ls -la "${COPC_ENV}/bin" 2>&1 | head -n 40 >&2 || true
   return 1
 }
 
