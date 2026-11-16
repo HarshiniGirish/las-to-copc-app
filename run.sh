@@ -189,7 +189,7 @@ resolve_lidar_input() {
     echo "Fetching STAC Item: ${path}" >&2
     href=$(stac_item_asset_href "${path}")
     echo "STAC asset href: ${href}" >&2
-    download_href "${href}" "${dest}"
+    download_href "${href}" "${dest}" || return 1
     echo "${dest}"
     return 0
   fi
@@ -200,7 +200,7 @@ resolve_lidar_input() {
         if [[ "${path,,}" == *.json ]]; then
           href=$(stac_item_asset_href "${path}")
           echo "STAC asset href: ${href}" >&2
-          download_href "${href}" "${dest}"
+          download_href "${href}" "${dest}" || return 1
           echo "${dest}"
           return 0
         fi
@@ -229,7 +229,7 @@ resolve_lidar_input() {
         echo "${path}/${href}"
         return 0
       fi
-      download_href "${href}" "${dest}"
+      download_href "${href}" "${dest}" || return 1
       echo "${dest}"
       return 0
     fi
@@ -250,7 +250,7 @@ resolve_lidar_input() {
     href=$(extract_href_from_json_tree "${parent}")
     if [[ -n "${href}" ]]; then
       echo "Resolved STAC asset href from parent: ${href}" >&2
-      download_href "${href}" "${dest}"
+      download_href "${href}" "${dest}" || return 1
       echo "${dest}"
       return 0
     fi
